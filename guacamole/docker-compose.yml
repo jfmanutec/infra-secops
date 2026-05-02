@@ -5,7 +5,7 @@
 # ============================================================
 # Pré-requisitos:
 #   1. docker network create docker-network-ger
-#   2. O schema do banco é inicializado automaticamente no primeiro deploy
+#   2. O schema do banco e inicializado automaticamente no primeiro deploy
 #
 # Iniciar:
 #   docker compose up -d
@@ -15,6 +15,17 @@
 # ============================================================
 
 services:
+  # --- Provider do schema JDBC do Guacamole ---
+  # Povoa um volume nomeado com os scripts SQL que o PostgreSQL executa
+  # automaticamente somente no primeiro boot do banco.
+  guacamole-schema:
+    image: guacamole/guacamole:1.6.0
+    container_name: guacamole-schema
+    command: ["/bin/sh", "-c", "test -d /opt/guacamole/extensions/guacamole-auth-jdbc/postgresql/schema"]
+    restart: "no"
+    volumes:
+      - guaca-initdb:/opt/guacamole/extensions/guacamole-auth-jdbc/postgresql/schema:ro
+
   # --- Banco de dados PostgreSQL dedicado ao Guacamole ---
   postgres-guaca:
     image: postgres:17.9-bookworm
@@ -32,6 +43,10 @@ services:
     volumes:
       - ${GUACA_PGDATA_PATH}:/var/lib/postgresql/data
       - ./postgres-ensure-password.sh:/usr/local/bin/postgres-ensure-password.sh:ro
+      - guaca-initdb:/docker-entrypoint-initdb.d:ro
+    depends_on:
+      guacamole-schema:
+        condition: service_completed_successfully
     networks:
       - guaca-internal
     healthcheck:
@@ -39,34 +54,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # --- Container de inicialização do Schema ---
-  # Gera e aplica o schema apenas se o banco ainda não estiver inicializado.
-  guacamole-init:
-    image: guacamole/guacamole:1.6.0
-    container_name: guacamole-init
-    env_file: .env
-    entrypoint: >
-      /bin/sh -c "
-        if PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres-guaca -U $${POSTGRES_USER} -d $${POSTGRES_DB} -tAc \"SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'guacamole_user'\" | grep -q 1; then
-          echo '>>> Schema do Guacamole ja existe. Nenhuma acao necessaria.';
-        else
-          /opt/guacamole/bin/initdb.sh --postgresql > /initdb/initdb.sql &&
-          echo '>>> Schema SQL gerado com sucesso em /initdb/initdb.sql' &&
-          PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres-guaca -U $${POSTGRES_USER} -d $${POSTGRES_DB} -f /initdb/initdb.sql &&
-          echo '>>> Schema aplicado com sucesso no banco de dados!';
-        fi
-      "
-    environment:
-      TZ: ${TZ}
-    volumes:
-      - ${GUACA_INITDB_PATH}:/initdb
-    depends_on:
-      postgres-guaca:
-        condition: service_healthy
-    networks:
-      - guaca-internal
-    restart: "no"
 
   # --- guacd (Proxy daemon para RDP, SSH, VNC) ---
   guacd:
@@ -105,13 +92,12 @@ services:
     depends_on:
       postgres-guaca:
         condition: service_healthy
-      guacamole-init:
-        condition: service_completed_successfully
       guacd:
         condition: service_started
     networks:
       - guaca-internal
       - docker-network-ger
+
 networks:
   # Rede interna: Guacamole <-> guacd <-> PostgreSQL
   guaca-internal:
@@ -120,3 +106,6 @@ networks:
   # Rede externa compartilhada (NPM, Keycloak, Bitwarden, etc.)
   docker-network-ger:
     external: true
+
+volumes:
+  guaca-initdb:

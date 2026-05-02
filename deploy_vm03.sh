@@ -22,7 +22,6 @@ echo "[1.1] Criando estrutura de diretórios..."
 
 sudo mkdir -p /srv/containers/keycloak/data/postgres
 sudo mkdir -p /srv/containers/guacamole/data/postgres
-sudo mkdir -p /srv/containers/guacamole/data/initdb
 sudo mkdir -p /srv/containers/guacamole/data/drive
 sudo mkdir -p /srv/containers/guacamole/data/record
 sudo mkdir -p /srv/containers/bitwarden/data
@@ -154,8 +153,8 @@ cd /srv/containers/guacamole
 echo "[5.2] Baixando imagens do Guacamole..."
 docker compose pull
 
-# ----- 5.3 Subir stack completa com init automático e idempotente -----
-echo "[5.3] Subindo stack completa com init automático do schema..."
+# ----- 5.3 Subir stack completa com schema automático via PostgreSQL -----
+echo "[5.3] Subindo stack completa com schema automático no primeiro boot do banco..."
 docker compose up -d
 
 # ----- 5.4 Verificar status -----

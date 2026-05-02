@@ -57,7 +57,7 @@ cd /srv/containers/bitwarden && docker compose up -d
 
 ### Guacamole
 
-O container `guacamole-init` roda automaticamente durante `docker compose up -d` e:
+O schema do Guacamole e inicializado automaticamente no primeiro `docker compose up -d` do PostgreSQL e:
 
 - cria o schema apenas se o banco ainda estiver vazio
 - não reaplica schema se o banco já existir

@@ -37,7 +37,6 @@ cd /srv/containers/bitwarden && docker compose up -d
 
 ## Observações
 
-- O `guacamole-init` roda automaticamente e só cria schema em banco novo.
+- O schema do Guacamole e aplicado automaticamente pelo PostgreSQL apenas em banco novo.
 - Keycloak e Guacamole reaplicam a senha atual do `.env` no PostgreSQL durante `up -d`.
 - As portas do host ficam limitadas a `127.0.0.1`; o acesso externo deve ocorrer via NPM.
-
