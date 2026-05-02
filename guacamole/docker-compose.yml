@@ -77,14 +77,13 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    env_file: .env
     environment:
       GUACD_HOSTNAME: ${GUACD_HOSTNAME}
       GUACD_PORT: ${GUACD_PORT}
       POSTGRESQL_HOSTNAME: ${POSTGRESQL_HOSTNAME}
       POSTGRESQL_PORT: ${POSTGRESQL_PORT}
       POSTGRESQL_DATABASE: ${POSTGRESQL_DATABASE}
-      POSTGRESQL_USER: ${POSTGRESQL_USER}
+      POSTGRESQL_USERNAME: ${POSTGRESQL_USERNAME}
       POSTGRESQL_PASSWORD: ${POSTGRESQL_PASSWORD}
       TZ: ${TZ}
     ports:
