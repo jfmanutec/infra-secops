@@ -1,0 +1,233 @@
+# ============================================================
+# GUIA DE MIGRAÇÃO: Bitwarden/Vaultwarden (VM02 → VM03)
+# ============================================================
+# Este guia transfere os dados do Vaultwarden da VM02 para
+# a VM03 de forma segura, preservando todos os cofres e senhas.
+#
+# Diretório destino: /srv/containers/bitwarden/data
+# ============================================================
+
+
+# ============================================================
+# PASSO 1: Preparar a VM03 (destino)
+# ============================================================
+# Se você já executou o deploy_vm03.sh, os diretórios e
+# permissões já foram criados. Caso contrário, execute:
+
+sudo mkdir -p /srv/containers/bitwarden/data
+sudo chmod 700 /srv/containers/bitwarden/data
+
+# Criar a rede Docker externa (se ainda não existir):
+docker network create docker-network-ger
+
+
+# ============================================================
+# PASSO 2: Parar o Vaultwarden na VM02 (origem)
+# ============================================================
+# IMPORTANTE: Parar o container ANTES de copiar para garantir
+# que o banco SQLite não esteja em uso e evitar corrupção.
+
+# 2.1 - Na VM02, vá até o diretório do Vaultwarden:
+#   (ajuste o caminho conforme seu setup atual na VM02)
+cd /caminho/do/vaultwarden/na/vm02
+
+# 2.2 - Pare o container:
+docker compose down
+
+# 2.3 - Verifique que parou:
+docker ps | grep -i vaultwarden
+#   (Não deve retornar nada)
+
+
+# ============================================================
+# PASSO 3: Identificar os dados na VM02
+# ============================================================
+# Localize a pasta de dados do Vaultwarden na VM02.
+# Geralmente é um volume Docker ou um bind mount.
+#
+# Para descobrir o caminho:
+docker inspect vaultwarden | grep -A5 "Mounts"
+
+# Ou verifique o docker-compose.yml antigo:
+cat docker-compose.yml | grep -A2 volumes
+
+# Os dados normalmente ficam em:
+#   - ./vw-data/
+#   - ./data/
+#   - /srv/vaultwarden/data/
+#   - Volume Docker: docker volume inspect nome_do_volume
+
+# Listar o conteúdo para confirmar:
+ls -la /caminho/identificado/dos/dados/
+# Deve conter: db.sqlite3, rsa_key.der, rsa_key.pub.der, etc.
+
+
+# ============================================================
+# PASSO 4: Transferir os dados da VM02 → VM03
+# ============================================================
+# Executar este comando NA VM02 (ou na VM03 invertendo src/dest).
+#
+# Opção A: Executar a partir da VM02 (enviando para VM03):
+rsync -avz --progress /caminho/dos/dados/ usuario@IP_DA_VM03:/srv/containers/bitwarden/data/
+
+# Opção B: Executar a partir da VM03 (puxando da VM02):
+rsync -avz --progress usuario@IP_DA_VM02:/caminho/dos/dados/ /srv/containers/bitwarden/data/
+
+# Substitua:
+#   /caminho/dos/dados/ → pelo caminho real dos dados na VM02
+#   usuario@IP_DA_VM02  → pelo usuário SSH e IP real da VM02
+#   usuario@IP_DA_VM03  → pelo usuário SSH e IP real da VM03
+#
+# Exemplo concreto (ajuste os IPs da rede 172.23.0.0/22):
+# rsync -avz --progress /srv/vaultwarden/data/ admin@172.23.x.x:/srv/containers/bitwarden/data/
+
+# Alternativa com SCP (se não tiver rsync):
+# scp -r /caminho/dos/dados/* usuario@IP_DA_VM03:/srv/containers/bitwarden/data/
+
+
+# ============================================================
+# PASSO 5: Verificar a integridade dos dados na VM03
+# ============================================================
+
+# 5.1 - Na VM03, verifique que os arquivos foram transferidos:
+ls -la /srv/containers/bitwarden/data/
+
+# Você DEVE ver pelo menos estes arquivos:
+#   db.sqlite3        → Banco de dados principal (OBRIGATÓRIO)
+#   rsa_key.der       → Chave RSA privada (OBRIGATÓRIO)
+#   rsa_key.pub.der   → Chave RSA pública (OBRIGATÓRIO)
+#   config.json       → Configurações (se existir)
+#   attachments/      → Pasta de anexos (se houver)
+#   sends/            → Pasta de sends (se houver)
+#   icon_cache/       → Cache de ícones (se houver)
+
+# 5.2 - Verificar tamanho do banco (deve ser > 0):
+du -h /srv/containers/bitwarden/data/db.sqlite3
+
+# 5.3 - Garantir permissões corretas:
+sudo chown -R root:root /srv/containers/bitwarden/data/
+sudo chmod 700 /srv/containers/bitwarden/data/
+
+
+# ============================================================
+# PASSO 6: Copiar os arquivos de configuração para a VM03
+# ============================================================
+
+# 6.1 - Se ainda não copiou os arquivos docker-compose.yml e .env:
+#   (A partir da sua máquina Windows, via SCP ou WinSCP)
+#   scp .\bitwarden\docker-compose.yml usuario@IP_VM03:/srv/containers/bitwarden/
+#   scp .\bitwarden\.env usuario@IP_VM03:/srv/containers/bitwarden/
+
+# 6.2 - Na VM03, proteja o .env:
+sudo chmod 600 /srv/containers/bitwarden/.env
+
+# 6.3 - Ajuste o .env conforme necessário:
+#   - DOMAIN → o endereço correto (ex: https://cofre.domio.local.br)
+#   - ADMIN_TOKEN → gere um novo se desejar:
+#     openssl rand -base64 48
+#   - Portas → ajuste VW_PORT_EXTERNAL se 8082 já estiver em uso
+#   - SMTP → configure se quiser envio de e-mails
+
+
+# ============================================================
+# PASSO 7: Subir o Vaultwarden na VM03
+# ============================================================
+
+# 7.1 - Na VM03, navegue até o diretório:
+cd /srv/containers/bitwarden
+
+# 7.2 - Baixe a imagem:
+docker compose pull
+
+# 7.3 - Suba o container:
+docker compose up -d
+
+# 7.4 - Verifique os logs (procure por erros):
+docker compose logs -f vaultwarden
+#   Pressione Ctrl+C para sair dos logs
+
+# 7.5 - Verifique o status:
+docker compose ps
+#   O container deve estar "Up" e "healthy"
+
+
+# ============================================================
+# PASSO 8: Validação
+# ============================================================
+
+# 8.1 - Teste o acesso local na VM03:
+curl -s http://localhost:8082/alive
+#   Deve retornar uma resposta indicando que o serviço está vivo.
+
+# 8.2 - Configure o DNS no seu AD (nos DCs):
+#   Crie um registro A:
+#     cofre.domio.local.br → IP_DA_VM03
+#
+#   PowerShell no DC:
+#   Add-DnsServerResourceRecordA -Name "cofre" -ZoneName "domio.local.br" -IPv4Address "172.23.X.X"
+
+# 8.3 - Configure o Nginx Proxy Manager (na VM03):
+#   - Proxy Host: cofre.domio.local.br
+#   - Scheme: http
+#   - Forward Hostname: vaultwarden  (nome do container)
+#   - Forward Port: 80               (porta INTERNA do container)
+#   - Websockets Support: HABILITADO
+#   - (Opcional) SSL via certificado interno
+
+# 8.4 - Acesse pelo navegador:
+#   https://cofre.domio.local.br
+#   Faça login com suas credenciais existentes.
+
+# 8.5 - Verifique no app Bitwarden (celular/desktop):
+#   Atualize a URL do servidor para: https://cofre.domio.local.br
+#   Faça login e confirme que todas as senhas estão acessíveis.
+
+
+# ============================================================
+# PASSO 9: Limpeza da VM02 (após confirmar que tudo funciona)
+# ============================================================
+
+# ⚠️  SOMENTE após confirmar que tudo está funcionando na VM03!
+# ⚠️  MANTENHA os dados na VM02 por pelo menos 1 SEMANA como backup!
+
+# 9.1 - Na VM02, remova os containers antigos:
+#   cd /caminho/do/vaultwarden/na/vm02
+#   docker compose down
+#   (NÃO use -v ainda para preservar o volume como backup)
+
+# 9.2 - Após 1 semana de funcionamento estável na VM03:
+#   docker compose down -v   # Remove containers e volumes Docker
+#   rm -rf /caminho/dos/dados/   # Remove dados do disco
+
+
+# ============================================================
+# TROUBLESHOOTING
+# ============================================================
+#
+# Erro: "Database is locked"
+#   → Certifique-se que o container na VM02 está PARADO.
+#   → Verifique: docker ps | grep -i vaultwarden (na VM02)
+#
+# Erro: "Permission denied"
+#   → Execute: sudo chown -R root:root /srv/containers/bitwarden/data/
+#   → Execute: sudo chmod 700 /srv/containers/bitwarden/data/
+#
+# Erro: "Token inválido no /admin"
+#   → O Vaultwarden 1.28+ requer ADMIN_TOKEN em formato Argon2.
+#   → Gere um hash: echo -n 'SuaSenha' | argon2 "$(openssl rand -base64 32)" -e -id -k 65540 -t 3 -p 4
+#   → Ou use o token em texto puro e defina ADMIN_TOKEN no .env.
+#   → Consulte: https://github.com/dani-garcia/vaultwarden/wiki/Enabling-admin-page
+#
+# RSA Keys não encontradas:
+#   → Verifique que rsa_key.der e rsa_key.pub.der foram copiados.
+#   → Sem eles, os cofres existentes NÃO podem ser descriptografados!
+#   → Se for instalação nova, o Vaultwarden gera automaticamente.
+#
+# Container reiniciando em loop:
+#   → Verifique logs: docker compose logs vaultwarden
+#   → Verifique portas: ss -tlnp | grep 8082
+#   → Verifique .env: cat /srv/containers/bitwarden/.env
+#
+# Timezone incorreto nos logs:
+#   → Verifique TZ no .env: deve ser "America/Fortaleza"
+#   → Reinicie: docker compose restart

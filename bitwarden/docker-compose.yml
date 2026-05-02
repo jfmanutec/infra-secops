@@ -1,0 +1,54 @@
+# ============================================================
+# VAULTWARDEN (Bitwarden self-hosted)
+# Diretório alvo na VM03: /srv/containers/bitwarden
+# Rede externa: docker-network-ger
+# ============================================================
+# Pré-requisitos:
+#   1. docker network create docker-network-ger
+#   2. Migrar dados da VM02 (ver migracao_bitwarden.txt)
+#
+# Iniciar:
+#   docker compose up -d
+#
+# Parar:
+#   docker compose down
+# ============================================================
+
+services:
+  # --- Vaultwarden (Bitwarden em Rust) ---
+  vaultwarden:
+    image: vaultwarden/server:1.35.7
+    container_name: vaultwarden
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    env_file: .env
+    environment:
+      DOMAIN: ${DOMAIN}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      SIGNUPS_ALLOWED: ${SIGNUPS_ALLOWED}
+      INVITATIONS_ALLOWED: ${INVITATIONS_ALLOWED}
+      WEBSOCKET_ENABLED: ${WEBSOCKET_ENABLED}
+      ATTACHMENT_LIMIT_ORG: ${ATTACHMENT_LIMIT_ORG}
+      SENDS_ALLOWED: ${SENDS_ALLOWED}
+      LOG_LEVEL: ${LOG_LEVEL}
+      EXTENDED_LOGGING: ${EXTENDED_LOGGING}
+      ROCKET_PORT: ${VW_PORT_INTERNAL}
+      TZ: ${TZ}
+    volumes:
+      - ${VW_DATA_PATH}:/data
+    ports:
+      - "127.0.0.1:${VW_PORT_EXTERNAL}:${VW_PORT_INTERNAL}"
+    networks:
+      - docker-network-ger
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${VW_PORT_INTERNAL}/alive"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+networks:
+  # Rede externa compartilhada (NPM, Keycloak, Guacamole, etc.)
+  docker-network-ger:
+    external: true

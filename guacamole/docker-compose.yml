@@ -1,0 +1,122 @@
+# ============================================================
+# APACHE GUACAMOLE (Web + guacd + PostgreSQL)
+# Diretório alvo na VM03: /srv/containers/guacamole
+# Rede externa: docker-network-ger
+# ============================================================
+# Pré-requisitos:
+#   1. docker network create docker-network-ger
+#   2. O schema do banco é inicializado automaticamente no primeiro deploy
+#
+# Iniciar:
+#   docker compose up -d
+#
+# Parar:
+#   docker compose down
+# ============================================================
+
+services:
+  # --- Banco de dados PostgreSQL dedicado ao Guacamole ---
+  postgres-guaca:
+    image: postgres:17.9-bookworm
+    container_name: postgres-guaca
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/bin/bash", "/usr/local/bin/postgres-ensure-password.sh"]
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - ${GUACA_PGDATA_PATH}:/var/lib/postgresql/data
+      - ./postgres-ensure-password.sh:/usr/local/bin/postgres-ensure-password.sh:ro
+    networks:
+      - guaca-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Container de inicialização do Schema ---
+  # Gera e aplica o schema apenas se o banco ainda não estiver inicializado.
+  guacamole-init:
+    image: guacamole/guacamole:1.6.0
+    container_name: guacamole-init
+    env_file: .env
+    entrypoint: >
+      /bin/sh -c "
+        if PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres-guaca -U $${POSTGRES_USER} -d $${POSTGRES_DB} -tAc \"SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'guacamole_user'\" | grep -q 1; then
+          echo '>>> Schema do Guacamole ja existe. Nenhuma acao necessaria.';
+        else
+          /opt/guacamole/bin/initdb.sh --postgresql > /initdb/initdb.sql &&
+          echo '>>> Schema SQL gerado com sucesso em /initdb/initdb.sql' &&
+          PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres-guaca -U $${POSTGRES_USER} -d $${POSTGRES_DB} -f /initdb/initdb.sql &&
+          echo '>>> Schema aplicado com sucesso no banco de dados!';
+        fi
+      "
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - ${GUACA_INITDB_PATH}:/initdb
+    depends_on:
+      postgres-guaca:
+        condition: service_healthy
+    networks:
+      - guaca-internal
+    restart: "no"
+
+  # --- guacd (Proxy daemon para RDP, SSH, VNC) ---
+  guacd:
+    image: guacamole/guacd:1.6.0
+    container_name: guacd
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - ${GUACD_DRIVE_PATH}:/drive:rw
+      - ${GUACD_RECORD_PATH}:/record:rw
+    networks:
+      - guaca-internal
+
+  # --- Guacamole (Interface Web) ---
+  guacamole:
+    image: guacamole/guacamole:1.6.0
+    container_name: guacamole
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    env_file: .env
+    environment:
+      GUACD_HOSTNAME: ${GUACD_HOSTNAME}
+      GUACD_PORT: ${GUACD_PORT}
+      POSTGRESQL_HOSTNAME: ${POSTGRESQL_HOSTNAME}
+      POSTGRESQL_PORT: ${POSTGRESQL_PORT}
+      POSTGRESQL_DATABASE: ${POSTGRESQL_DATABASE}
+      POSTGRESQL_USER: ${POSTGRESQL_USER}
+      POSTGRESQL_PASSWORD: ${POSTGRESQL_PASSWORD}
+      TZ: ${TZ}
+    ports:
+      - "127.0.0.1:${GUACAMOLE_PORT_EXTERNAL}:${GUACAMOLE_PORT_INTERNAL}"
+    depends_on:
+      postgres-guaca:
+        condition: service_healthy
+      guacamole-init:
+        condition: service_completed_successfully
+      guacd:
+        condition: service_started
+    networks:
+      - guaca-internal
+      - docker-network-ger
+networks:
+  # Rede interna: Guacamole <-> guacd <-> PostgreSQL
+  guaca-internal:
+    driver: bridge
+
+  # Rede externa compartilhada (NPM, Keycloak, Bitwarden, etc.)
+  docker-network-ger:
+    external: true
