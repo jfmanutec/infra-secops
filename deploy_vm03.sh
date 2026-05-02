@@ -24,7 +24,8 @@ sudo mkdir -p /srv/containers/keycloak/data/postgres
 sudo mkdir -p /srv/containers/guacamole/data/postgres
 sudo mkdir -p /srv/containers/guacamole/data/drive
 sudo mkdir -p /srv/containers/guacamole/data/record
-sudo mkdir -p /srv/containers/bitwarden/data
+sudo mkdir -p /srv/containers/bitwarden/data/vaultwarden
+sudo mkdir -p /srv/containers/bitwarden/data/postgres
 
 # ----- 1.2 Configurar permissões -----
 echo "[1.2] Configurando permissões..."
@@ -32,6 +33,7 @@ echo "[1.2] Configurando permissões..."
 # PostgreSQL roda como UID 999 dentro do container oficial
 sudo chown -R 999:999 /srv/containers/keycloak/data/postgres
 sudo chown -R 999:999 /srv/containers/guacamole/data/postgres
+sudo chown -R 999:999 /srv/containers/bitwarden/data/postgres
 
 # Guacamole guacd precisa gravar nos diretórios compartilhados
 sudo chown -R 1000:1000 /srv/containers/guacamole/data/drive
@@ -39,9 +41,9 @@ sudo chown -R 1000:1000 /srv/containers/guacamole/data/record
 sudo chmod 750 /srv/containers/guacamole/data/drive
 sudo chmod 750 /srv/containers/guacamole/data/record
 
-# Vaultwarden persiste todo o estado em /data
-sudo chown -R root:root /srv/containers/bitwarden/data
-sudo chmod 700 /srv/containers/bitwarden/data
+# Vaultwarden persiste arquivos proprios em /data e usa PostgreSQL dedicado
+sudo chown -R root:root /srv/containers/bitwarden/data/vaultwarden
+sudo chmod 700 /srv/containers/bitwarden/data/vaultwarden
 
 # Proteger diretório raiz
 sudo chmod 750 /srv/containers
@@ -85,7 +87,7 @@ echo "============================================================"
 # SCP a partir da máquina Windows (PowerShell):
 #   scp .\keycloak\docker-compose.yml .\keycloak\.env .\keycloak\postgres-ensure-password.sh usuario@IP_VM03:/srv/containers/keycloak/
 #   scp .\guacamole\docker-compose.yml .\guacamole\.env .\guacamole\postgres-ensure-password.sh usuario@IP_VM03:/srv/containers/guacamole/
-#   scp .\bitwarden\docker-compose.yml .\bitwarden\.env usuario@IP_VM03:/srv/containers/bitwarden/
+#   scp .\bitwarden\docker-compose.yml .\bitwarden\.env .\bitwarden\postgres-ensure-password.sh usuario@IP_VM03:/srv/containers/bitwarden/
 #
 # Ou via WinSCP, arraste os arquivos para os diretórios corretos.
 #
@@ -101,6 +103,7 @@ echo "      /srv/containers/guacamole/.env"
 echo "      /srv/containers/guacamole/postgres-ensure-password.sh"
 echo "      /srv/containers/bitwarden/docker-compose.yml"
 echo "      /srv/containers/bitwarden/.env"
+echo "      /srv/containers/bitwarden/postgres-ensure-password.sh"
 
 # ----- 3.2 Proteger os arquivos .env (contêm senhas) -----
 echo "[3.2] Protegendo arquivos .env..."

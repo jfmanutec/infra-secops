@@ -64,12 +64,13 @@ O schema do Guacamole e inicializado automaticamente no primeiro `docker compose
 
 ### Sincronização de senha do PostgreSQL
 
-Keycloak e Guacamole usam um wrapper no PostgreSQL para alinhar a senha do usuário do banco com o valor atual do `.env` em cada `docker compose up -d`.
+Keycloak, Guacamole e Vaultwarden usam um wrapper no PostgreSQL para alinhar a senha do usuário do banco com o valor atual do `.env` em cada `docker compose up -d`.
 
 Para isso funcionar sem erro:
 
 - no Keycloak, `POSTGRES_PASSWORD` e `KC_DB_PASSWORD` devem ser iguais
 - no Guacamole, `POSTGRES_PASSWORD` e `POSTGRESQL_PASSWORD` devem ser iguais
+- no Vaultwarden, `POSTGRES_PASSWORD` e a senha embutida em `DATABASE_URL` devem ser iguais
 
 Isso sincroniza senha. Não sincroniza renomeação de usuário, banco ou hostname.
 

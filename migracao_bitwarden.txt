@@ -4,7 +4,9 @@
 # Este guia transfere os dados do Vaultwarden da VM02 para
 # a VM03 de forma segura, preservando todos os cofres e senhas.
 #
-# Diretório destino: /srv/containers/bitwarden/data
+# Diretório destino:
+#   /srv/containers/bitwarden/data/vaultwarden
+#   /srv/containers/bitwarden/data/postgres
 # ============================================================
 
 
@@ -14,8 +16,9 @@
 # Se você já executou o deploy_vm03.sh, os diretórios e
 # permissões já foram criados. Caso contrário, execute:
 
-sudo mkdir -p /srv/containers/bitwarden/data
-sudo chmod 700 /srv/containers/bitwarden/data
+sudo mkdir -p /srv/containers/bitwarden/data/vaultwarden
+sudo mkdir -p /srv/containers/bitwarden/data/postgres
+sudo chmod 700 /srv/containers/bitwarden/data/vaultwarden
 
 # Criar a rede Docker externa (se ainda não existir):
 docker network create docker-network-ger
@@ -42,8 +45,8 @@ docker ps | grep -i vaultwarden
 # ============================================================
 # PASSO 3: Identificar os dados na VM02
 # ============================================================
-# Localize a pasta de dados do Vaultwarden na VM02.
-# Geralmente é um volume Docker ou um bind mount.
+# Localize as pastas de dados do Vaultwarden na VM02.
+# Neste ambiente atual, a aplicacao usa bind mount para /data e PostgreSQL dedicado.
 #
 # Para descobrir o caminho:
 docker inspect vaultwarden | grep -A5 "Mounts"
@@ -51,15 +54,13 @@ docker inspect vaultwarden | grep -A5 "Mounts"
 # Ou verifique o docker-compose.yml antigo:
 cat docker-compose.yml | grep -A2 volumes
 
-# Os dados normalmente ficam em:
-#   - ./vw-data/
-#   - ./data/
-#   - /srv/vaultwarden/data/
-#   - Volume Docker: docker volume inspect nome_do_volume
-
+# No ambiente atual da VM02:
+#   - ./vw-data/  -> arquivos do Vaultwarden (/data)
+#   - ./db-data/  -> dados do PostgreSQL
+#
 # Listar o conteúdo para confirmar:
-ls -la /caminho/identificado/dos/dados/
-# Deve conter: db.sqlite3, rsa_key.der, rsa_key.pub.der, etc.
+ls -la /srv/containers/prod/vaultwarden/vw-data/
+ls -la /srv/containers/prod/vaultwarden/db-data/
 
 
 # ============================================================
@@ -68,21 +69,16 @@ ls -la /caminho/identificado/dos/dados/
 # Executar este comando NA VM02 (ou na VM03 invertendo src/dest).
 #
 # Opção A: Executar a partir da VM02 (enviando para VM03):
-rsync -avz --progress /caminho/dos/dados/ usuario@IP_DA_VM03:/srv/containers/bitwarden/data/
+rsync -avz --progress /srv/containers/prod/vaultwarden/vw-data/ usuario@IP_DA_VM03:/srv/containers/bitwarden/data/vaultwarden/
+rsync -avz --progress /srv/containers/prod/vaultwarden/db-data/ usuario@IP_DA_VM03:/srv/containers/bitwarden/data/postgres/
 
 # Opção B: Executar a partir da VM03 (puxando da VM02):
-rsync -avz --progress usuario@IP_DA_VM02:/caminho/dos/dados/ /srv/containers/bitwarden/data/
+rsync -avz --progress usuario@IP_DA_VM02:/srv/containers/prod/vaultwarden/vw-data/ /srv/containers/bitwarden/data/vaultwarden/
+rsync -avz --progress usuario@IP_DA_VM02:/srv/containers/prod/vaultwarden/db-data/ /srv/containers/bitwarden/data/postgres/
 
 # Substitua:
-#   /caminho/dos/dados/ → pelo caminho real dos dados na VM02
 #   usuario@IP_DA_VM02  → pelo usuário SSH e IP real da VM02
 #   usuario@IP_DA_VM03  → pelo usuário SSH e IP real da VM03
-#
-# Exemplo concreto (ajuste os IPs da rede 172.23.0.0/22):
-# rsync -avz --progress /srv/vaultwarden/data/ admin@172.23.x.x:/srv/containers/bitwarden/data/
-
-# Alternativa com SCP (se não tiver rsync):
-# scp -r /caminho/dos/dados/* usuario@IP_DA_VM03:/srv/containers/bitwarden/data/
 
 
 # ============================================================
@@ -90,10 +86,10 @@ rsync -avz --progress usuario@IP_DA_VM02:/caminho/dos/dados/ /srv/containers/bit
 # ============================================================
 
 # 5.1 - Na VM03, verifique que os arquivos foram transferidos:
-ls -la /srv/containers/bitwarden/data/
+ls -la /srv/containers/bitwarden/data/vaultwarden/
+ls -la /srv/containers/bitwarden/data/postgres/
 
-# Você DEVE ver pelo menos estes arquivos:
-#   db.sqlite3        → Banco de dados principal (OBRIGATÓRIO)
+# Você DEVE ver em /data/vaultwarden pelo menos estes arquivos:
 #   rsa_key.der       → Chave RSA privada (OBRIGATÓRIO)
 #   rsa_key.pub.der   → Chave RSA pública (OBRIGATÓRIO)
 #   config.json       → Configurações (se existir)
@@ -101,12 +97,13 @@ ls -la /srv/containers/bitwarden/data/
 #   sends/            → Pasta de sends (se houver)
 #   icon_cache/       → Cache de ícones (se houver)
 
-# 5.2 - Verificar tamanho do banco (deve ser > 0):
-du -h /srv/containers/bitwarden/data/db.sqlite3
+# 5.2 - Verificar que o diretório do PostgreSQL foi copiado:
+du -sh /srv/containers/bitwarden/data/postgres/
 
 # 5.3 - Garantir permissões corretas:
-sudo chown -R root:root /srv/containers/bitwarden/data/
-sudo chmod 700 /srv/containers/bitwarden/data/
+sudo chown -R root:root /srv/containers/bitwarden/data/vaultwarden/
+sudo chown -R 999:999 /srv/containers/bitwarden/data/postgres/
+sudo chmod 700 /srv/containers/bitwarden/data/vaultwarden/
 
 
 # ============================================================
@@ -122,9 +119,10 @@ sudo chmod 700 /srv/containers/bitwarden/data/
 sudo chmod 600 /srv/containers/bitwarden/.env
 
 # 6.3 - Ajuste o .env conforme necessário:
-#   - DOMAIN → o endereço correto (ex: https://cofre.domio.local.br)
+#   - DOMAIN → o endereço correto (ex: https://cofre.app.jfma.br)
 #   - ADMIN_TOKEN → gere um novo se desejar:
 #     openssl rand -base64 48
+#   - POSTGRES_PASSWORD e DATABASE_URL devem permanecer coerentes
 #   - Portas → ajuste VW_PORT_EXTERNAL se 8082 já estiver em uso
 #   - SMTP → configure se quiser envio de e-mails
 
@@ -148,7 +146,7 @@ docker compose logs -f vaultwarden
 
 # 7.5 - Verifique o status:
 docker compose ps
-#   O container deve estar "Up" e "healthy"
+#   Os containers devem estar "Up" e "healthy"
 
 
 # ============================================================
@@ -161,13 +159,13 @@ curl -s http://localhost:8082/alive
 
 # 8.2 - Configure o DNS no seu AD (nos DCs):
 #   Crie um registro A:
-#     cofre.domio.local.br → IP_DA_VM03
+#     cofre.app.jfma.br → IP_DA_VM03
 #
 #   PowerShell no DC:
 #   Add-DnsServerResourceRecordA -Name "cofre" -ZoneName "domio.local.br" -IPv4Address "172.23.X.X"
 
 # 8.3 - Configure o Nginx Proxy Manager (na VM03):
-#   - Proxy Host: cofre.domio.local.br
+#   - Proxy Host: cofre.app.jfma.br
 #   - Scheme: http
 #   - Forward Hostname: vaultwarden  (nome do container)
 #   - Forward Port: 80               (porta INTERNA do container)
@@ -175,11 +173,11 @@ curl -s http://localhost:8082/alive
 #   - (Opcional) SSL via certificado interno
 
 # 8.4 - Acesse pelo navegador:
-#   https://cofre.domio.local.br
+#   https://cofre.app.jfma.br
 #   Faça login com suas credenciais existentes.
 
 # 8.5 - Verifique no app Bitwarden (celular/desktop):
-#   Atualize a URL do servidor para: https://cofre.domio.local.br
+#   Atualize a URL do servidor para: https://cofre.app.jfma.br
 #   Faça login e confirme que todas as senhas estão acessíveis.
 
 

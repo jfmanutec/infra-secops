@@ -1,9 +1,9 @@
 # ============================================================
-# VAULTWARDEN (Bitwarden self-hosted)
-# Diretório alvo na VM03: /srv/containers/bitwarden
+# VAULTWARDEN + PostgreSQL
+# Diretorio alvo na VM03: /srv/containers/bitwarden
 # Rede externa: docker-network-ger
 # ============================================================
-# Pré-requisitos:
+# Pre-requisitos:
 #   1. docker network create docker-network-ger
 #   2. Migrar dados da VM02 (ver migracao_bitwarden.txt)
 #
@@ -15,6 +15,31 @@
 # ============================================================
 
 services:
+  # --- Banco de dados PostgreSQL dedicado ao Vaultwarden ---
+  postgres-vaultwarden:
+    image: postgres:17.9-bookworm
+    container_name: postgres-vaultwarden
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/bin/bash", "/usr/local/bin/postgres-ensure-password.sh"]
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - ${VW_PGDATA_PATH}:/var/lib/postgresql/data
+      - ./postgres-ensure-password.sh:/usr/local/bin/postgres-ensure-password.sh:ro
+    networks:
+      - bitwarden-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # --- Vaultwarden (Bitwarden em Rust) ---
   vaultwarden:
     image: vaultwarden/server:1.35.7
@@ -24,6 +49,7 @@ services:
       - no-new-privileges:true
     env_file: .env
     environment:
+      DATABASE_URL: ${DATABASE_URL}
       DOMAIN: ${DOMAIN}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
       SIGNUPS_ALLOWED: ${SIGNUPS_ALLOWED}
@@ -39,7 +65,11 @@ services:
       - ${VW_DATA_PATH}:/data
     ports:
       - "127.0.0.1:${VW_PORT_EXTERNAL}:${VW_PORT_INTERNAL}"
+    depends_on:
+      postgres-vaultwarden:
+        condition: service_healthy
     networks:
+      - bitwarden-internal
       - docker-network-ger
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${VW_PORT_INTERNAL}/alive"]
@@ -49,6 +79,9 @@ services:
       start_period: 15s
 
 networks:
+  bitwarden-internal:
+    driver: bridge
+
   # Rede externa compartilhada (NPM, Keycloak, Guacamole, etc.)
   docker-network-ger:
     external: true

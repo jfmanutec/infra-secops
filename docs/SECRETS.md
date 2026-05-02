@@ -38,3 +38,4 @@ POSTGRES_PASSWORD='Senha$Com$Dolar'
 
 - `ADMIN_TOKEN` deve permanecer fora do Git
 - `SIGNUPS_ALLOWED=false` é o padrão recomendado em produção
+- `POSTGRES_PASSWORD` e a senha embutida em `DATABASE_URL` devem permanecer coerentes
